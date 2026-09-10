@@ -1,0 +1,8 @@
+#!/bin/bash
+# Clear the Omeka S on-disk cache.
+for d in /var/www/omeka-s/files/cache /volume/files/cache; do
+    if [ -d "$d" ]; then
+        find "$d" -mindepth 1 -delete 2>/dev/null || true
+    fi
+done
+echo "[omeka-cache-clear] cache cleared (run restart_all for the PHP opcache)"

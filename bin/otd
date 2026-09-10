@@ -1,0 +1,186 @@
+#!/bin/bash
+
+# otd - Omeka-S-Docker management script
+#
+# A thin wrapper around `docker compose`: it points at the repo, injects the
+# host UID/GID, adds Mailpit / host-module mounts on demand, and provides a few
+# container shortcuts (--shell, --dbshell, --logs, --run).
+
+set -e
+
+usage()
+{
+    cat <<'EOF'
+
+Manage your Omeka-S-Docker environment.
+
+Usage:
+
+    otd [--smtp] [--module PATH | --modules DIR] up [-d]
+    otd down
+    otd pull | build
+    otd [--root] --shell
+    otd --run 'command'
+    otd --dbshell
+    otd --logs
+    otd -h | --help
+
+Options:
+
+    --smtp               Also start Mailpit (SMTP test server + web UI)
+    --module PATH        Mount one host module into modules/<basename>
+    --modules DIR        Mount a whole host modules directory
+    --root               With --shell / --run: act as root instead of "application"
+    --shell              Open a shell in the omeka container
+    --run 'command'      Run a command in the omeka container
+    --dbshell            Open a database client on the omeka database
+    --logs               Follow the omeka container logs
+    --help, -h           Show this help
+
+"otd up -d" waits until the stack is healthy, then prints the URLs.
+"otd up" without -d streams the startup logs in the foreground.
+"otd pull" refreshes the base images and rebuilds the omeka image.
+Set OTD_WAIT_TIMEOUT to change the readiness timeout (default 300s).
+
+Environment variables:
+
+    OTD_HOME             Mandatory. Path to a clone of this repository.
+
+EOF
+}
+
+case "${1:-}" in
+    -h|--help) usage ; exit 0 ;;
+esac
+
+# --- preconditions -------------------------------------------------------
+
+if [ -z "$OTD_HOME" ] || [ ! -d "$OTD_HOME" ]; then
+    printf '\n$OTD_HOME must point to a clone of this repository (got: %s)\n\n' "${OTD_HOME:-unset}" >&2
+    exit 1
+fi
+if [ ! -f "$OTD_HOME/.env" ]; then
+    printf '\nNo .env file in %s\nCreate one with:  cp env/defaults.env .env\n\n' "$OTD_HOME" >&2
+    exit 1
+fi
+
+# Load .env for interpolation; make DOCKER exec/logs reach the compose backend.
+set -a
+# shellcheck disable=SC1091
+source "$OTD_HOME/.env"
+set +a
+
+DOCKER="${DOCKER_BINARY:-$(command -v docker)}"
+[ -n "$DOCKER_HOST" ] && [ -z "$CONTAINER_HOST" ] && export CONTAINER_HOST="$DOCKER_HOST"
+
+export LOCAL_UID="${LOCAL_UID:-$(id -u)}"
+export LOCAL_GID="${LOCAL_GID:-$(id -g)}"
+
+PROJECT="${OTD_PROJECT:-omeka}"
+OMEKA_CONTAINER="${PROJECT}-omeka-1"
+
+# --- argument parsing ---------------------------------------------------
+
+ENABLE_SMTP="no"
+MODULE_PATH="" ; MODULES_DIR=""
+ROOT_ACCESS="no" ; SHELL_ACCESS="no" ; DBSHELL="no" ; FOLLOW_LOGS="no" ; RUN=""
+
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --smtp)     ENABLE_SMTP="yes" ; shift ;;
+        --module)   MODULE_PATH="$2" ; shift 2 ;;
+        --modules)  MODULES_DIR="$2" ; shift 2 ;;
+        --root)     ROOT_ACCESS="yes" ; shift ;;
+        --shell)    SHELL_ACCESS="yes" ; shift ;;
+        --run)      RUN="$2" ; shift 2 ;;
+        --dbshell)  DBSHELL="yes" ; shift ;;
+        --logs)     FOLLOW_LOGS="yes" ; shift ;;
+        down)       exec "$DOCKER" compose --project-directory "$OTD_HOME" -p "$PROJECT" down ;;
+        -*)         printf "\nUnknown option: %s\n\n" "$1" >&2 ; usage ; exit 1 ;;
+        *)          break ;;
+    esac
+done
+
+# --- container shortcuts ----------------------------------------------
+
+# Allocate a TTY only when stdin is one, so piping into these works.
+TI="-i" ; [ -t 0 ] && TI="-it"
+
+if [ "$FOLLOW_LOGS" = "yes" ]; then
+    exec "$DOCKER" logs -f "$OMEKA_CONTAINER"
+fi
+
+if [ "$SHELL_ACCESS" = "yes" ] || [ -n "$RUN" ]; then
+    U="--user application" ; [ "$ROOT_ACCESS" = "yes" ] && U="--user root"
+    if [ -n "$RUN" ]; then
+        exec "$DOCKER" exec $U -w /var/www/omeka-s "$OMEKA_CONTAINER" bash -lc "$RUN"
+    fi
+    exec "$DOCKER" exec $U -w /var/www/omeka-s $TI "$OMEKA_CONTAINER" bash -l
+fi
+
+if [ "$DBSHELL" = "yes" ]; then
+    exec "$DOCKER" exec $TI "$OMEKA_CONTAINER" sh -c \
+        'exec "$(command -v mariadb || command -v mysql)" \
+         -h"${MYSQL_HOST:-db}" -u"${MYSQL_USER:-omeka}" -p"${MYSQL_PASSWORD:-omeka}" "${MYSQL_DATABASE:-omeka}"'
+fi
+
+# --- compose assembly ------------------------------------------------
+
+FILES=(-f compose.yaml)
+[ "$ENABLE_SMTP" = "yes" ] && FILES+=(-f compose/mailpit.yml)
+
+if [ -n "$MODULE_PATH" ]; then
+    [ -d "$MODULE_PATH" ] || { printf "\n--module path not found: %s\n\n" "$MODULE_PATH" >&2 ; exit 1 ; }
+    OTD_MOUNT_SRC="$(cd "$MODULE_PATH" && pwd)"
+    export OTD_MOUNT_SRC
+    export OTD_MOUNT_DST="/volume/modules/$(basename "$OTD_MOUNT_SRC")"
+    export OMEKA_S_DEV_MODULES="${OMEKA_S_DEV_MODULES:+$OMEKA_S_DEV_MODULES }$(basename "$OTD_MOUNT_SRC")"
+    FILES+=(-f compose/module-mount.yml)
+elif [ -n "$MODULES_DIR" ]; then
+    [ -d "$MODULES_DIR" ] || { printf "\n--modules path not found: %s\n\n" "$MODULES_DIR" >&2 ; exit 1 ; }
+    OTD_MOUNT_SRC="$(cd "$MODULES_DIR" && pwd)"
+    export OTD_MOUNT_SRC
+    export OTD_MOUNT_DST="/volume/modules"
+    FILES+=(-f compose/module-mount.yml)
+fi
+
+if [ $# -eq 0 ]; then
+    printf "\nNothing to do. Try:  otd up -d\n\n"
+    usage
+    exit 1
+fi
+
+cd "$OTD_HOME"
+COMPOSE=("$DOCKER" compose --project-directory "$OTD_HOME" "${FILES[@]}" -p "$PROJECT")
+
+# `otd pull` = refresh base images + rebuild omeka from the latest base.
+if [ "$1" = "pull" ]; then
+    "${COMPOSE[@]}" pull || exit $?
+    exec "${COMPOSE[@]}" build --pull
+fi
+
+# `otd up -d` waits for health and reports the URLs; `otd up` streams logs.
+_detach="no"
+if [ "$1" = "up" ]; then
+    for a in "$@"; do case "$a" in -d|--detach) _detach="yes" ;; esac ; done
+fi
+
+if [ "$_detach" != "yes" ]; then
+    exec "${COMPOSE[@]}" "$@"
+fi
+
+printf '\n[otd] Starting Omeka S. First boot runs the core install and module\n'
+printf '      setup, so it can take a minute...\n\n'
+"${COMPOSE[@]}" "$@" --wait --wait-timeout "${OTD_WAIT_TIMEOUT:-300}"
+RC=$?
+printf '\n'
+if [ "$RC" -eq 0 ]; then
+    printf '[otd] Omeka S is ready.\n'
+    printf '      Omeka S     http://localhost:%s\n' "${OMEKA_S_EXPOSED_PORT:-8080}"
+    printf '      phpMyAdmin  http://localhost:%s\n' "${PHPMYADMIN_EXPOSED_PORT:-8081}"
+    printf '      Solr        http://localhost:%s\n' "${SOLR_EXPOSED_PORT:-8983}"
+    [ "$ENABLE_SMTP" = "yes" ] && printf '      Mailpit     http://localhost:%s\n' "${MAILPIT_EXPOSED_PORT:-8025}"
+else
+    printf '[otd] stack not healthy yet (compose exit %s). Check:  otd --logs\n' "$RC"
+fi
+exit "$RC"

@@ -1,0 +1,33 @@
+#!/bin/bash
+# Download, install and enable an Omeka S module list. Idempotent.
+#
+#   modules-install                # uses OMEKA_S_MODULES + OMEKA_S_DEV_MODULES
+#                                  #       + OTD_MOUNTED_MODULES
+#   modules-install Common Log     # uses the given list instead
+
+OSC="omeka-s-cli"
+BP=/var/www/omeka-s
+
+if [ "$#" -gt 0 ]; then
+    LIST="$*"
+else
+    LIST="${OMEKA_S_MODULES:-} ${OMEKA_S_DEV_MODULES:-}"
+fi
+
+for entry in $LIST; do
+    [ -n "$entry" ] || continue
+    name="${entry%%:*}"
+
+    if [ ! -d "$BP/modules/$name" ]; then
+        echo "[modules-install] downloading: $entry"
+        $OSC module:download "$entry" --base-path "$BP" || {
+            echo "[modules-install] failed to download '$entry'"
+            continue
+        }
+    fi
+
+    echo "[modules-install] installing/enabling: $name"
+    $OSC module:install "$name" --base-path "$BP" 2>/dev/null \
+      || $OSC module:enable "$name" --base-path "$BP" 2>/dev/null \
+      || echo "[modules-install] '$name' already active or not installable"
+done

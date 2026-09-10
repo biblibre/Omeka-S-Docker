@@ -1,0 +1,7 @@
+#!/bin/bash
+# Reload the Solr core (pick up a new schema).
+CORE="${SOLR_CORE:-default}"
+HOST="${SOLR_HOST:-solr}:${SOLR_PORT:-8983}"
+curl -fsS "http://${HOST}/solr/admin/cores?action=RELOAD&core=${CORE}" >/dev/null \
+  && echo "[solr-reload] core '${CORE}' reloaded" \
+  || { echo "[solr-reload] failed (is Solr running? 'otd --solr up -d')"; exit 1; }

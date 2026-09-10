@@ -1,0 +1,8 @@
+# Mount host module code into the Omeka S install.
+# Added by `otd` for `--module PATH` (one module) or `--modules DIR` (a folder).
+# The wrapper exports OTD_MOUNT_SRC (absolute host path) and OTD_MOUNT_DST.
+# /volume/modules is the real target of the /var/www/omeka-s/modules symlink.
+services:
+  omeka:
+    volumes:
+      - ${OTD_MOUNT_SRC:?}:${OTD_MOUNT_DST:?}

@@ -1,0 +1,12 @@
+#!/bin/bash
+# Unload then recreate the Solr core (start from an empty index).
+CORE="${SOLR_CORE:-default}"
+HOST="${SOLR_HOST:-solr}:${SOLR_PORT:-8983}"
+
+curl -fsS "http://${HOST}/solr/admin/cores?action=UNLOAD&core=${CORE}&deleteIndex=true" >/dev/null 2>&1 || true
+if curl -fsS "http://${HOST}/solr/admin/cores?action=CREATE&name=${CORE}&configSet=_default" >/dev/null; then
+    echo "[solr-restart] core '${CORE}' recreated"
+else
+    echo "[solr-restart] failed (is Solr running? 'otd --solr up -d')"
+    exit 1
+fi

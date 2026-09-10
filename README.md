@@ -1,159 +1,207 @@
 # Omeka-S-Docker
 
-This repository provides a Docker setup for Omeka S. It is based on [webdevops/php-apache](https://github.com/webdevops/Dockerfile).
+A Docker development environment for Omeka S: Omeka S + MariaDB + Solr +
+phpMyAdmin, driven by a small `otd` wrapper around `docker compose`.
 
-## Features
+Based on the [`webdevops/php-apache`](https://github.com/webdevops/Dockerfile)
+image and the [`omeka-s-cli`](https://github.com/GhentCDH/Omeka-S-Cli) CLI.
 
-- Configurable Omeka & PHP version
-- Configurable list of modules and themes to be added to the build image
-- Install automation!
-  - Install Omeka S core at boot
-  - Install modules at boot
+## Requirements
 
-The default compose.yaml provides a MariaDB database, PHPMyAdmin, MailPit and Apache Solr.
+- Docker Engine + the Docker Compose v2 plugin (`docker compose version` >= 2.20)
+- ~2.5 GiB of free RAM (Solr is part of the default stack)
+- `git` and a text editor
 
-## Getting Started
-
-To start the container, run:
+Your user must belong to the `docker` group:
 
 ```sh
-docker compose up
+sudo usermod -aG docker "$USER"   # then log out / restart your session
 ```
 
-Once started, you can access the Omeka-S installation at [http://localhost:8080](http://localhost:8080), PHPMyAdmin at [http://localhost:8081](http://localhost:8081) and MailPit at [http://localhost:8025](http://localhost:8025).
+## Installation
 
-## Build Arguments
-
-The following build arguments can be used to customize the Docker image at build time:
-
-| Argument          | Description                                              | Default Value |
-| ----------------- | -------------------------------------------------------- | ------------- |
-| `PHP_VERSION`     | PHP Version                                              | `8.1`         |
-| `OMEKA_S_VERSION` | Version of Omeka S to download and install               | `4.1.1`       |
-| `OMEKA_S_MODULES` | List of modules to download during build (examples below) | `""` (empty)  |
-| `OMEKA_S_THEMES`  | List of themes to download during build (examples below) | `""` (empty)  |
-
-### Usage
-
-To build the image with custom arguments:
-
-```bash
-docker build \
-  --build-arg OMEKA_S_VERSION=4.1.0 \
-  --build-arg OMEKA_S_MODULES="Common Log EasyAdmin" \
-  --build-arg OMEKA_S_THEMES="default Freedom" \
-  --target prod \
-  -t my-omeka-s:latest .
-```
-## Configuration
-
-First, copy the `example.env` file to `.env` and update the values as needed.
-
-### Omeka S
-
-| Variable                   | Description                                                        | Default      |
-| -------------------------- | ------------------------------------------------------------------ | ------------ |
-| `MYSQL_DATABASE`           | Database name                                                      | `omeka`      |
-| `MYSQL_USER`               | Database user                                                      | `omeka`      |
-| `MYSQL_PASSWORD`           | Database password                                                  | `omeka`      |
-| `MYSQL_HOST`               | Database host                                                      | `db`         |
-| `MYSQL_PORT`               | Database port                                                      | `3306`       |
-| `SMTP_HOST`                | SMTP host                                                          | `mailpit`    |
-| `SMTP_PORT`                | 25, 465 for 'ssl', and 587 for 'tls'                               | `8025`       |
-| `SMTP_CONNECTION_TYPE`     | 'null', 'ssl' or 'tls'                                             | `null`       |
-| `SMTP_USER`                |                                                                    | `""` (empty) |
-| `SMTP_PASSWORD`            |                                                                    | `""` (empty) |
-| `OMEKA_S_ALLOW_EASY_ADMIN` | Set value to 1 to allow EasyAdmin module to install themes/modules | `0`          |
-
-The `database.ini` config file is automatically generated at startup based on these values.
-
-### Automated installation
-
-| Variable                  | Description                                             | Default             |
-| ------------------------- | ------------------------------------------------------- | ------------------- |
-| `OMEKA_S_MODULES`         | A list of Omeka S modules/urls to download at boot time | `""` (empty)        |
-| `OMEKA_S_THEMES`          | A list of Omeka S themes/urls to download at boot time  | `""` (empty)        |
-| `OMEKA_S_INSTALL_CORE`    | Install Omeka S core at boot time                       | `0`                 |
-| `OMEKA_S_INSTALL_MODULES` | Install modules at boot time                            | `0`                 |
-| `OMEKA_S_TITLE`           | Title for the Omeka S installation                      | `Omeka S`           |
-| `OMEKA_S_TIME_ZONE`       | Time zone for the installation                          | `UTC`               |
-| `OMEKA_S_LOCALE`          | Locale/language for the installation                    | `en_US`             |
-| `OMEKA_S_ADMIN_NAME`      | Administrator name                                      | `admin`             |
-| `OMEKA_S_ADMIN_EMAIL`     | Administrator email address                             | `admin@example.com` |
-| `OMEKA_S_ADMIN_PASSWORD`  | Administrator password                                  | `admin`             |
-
-### Containers
-
-| Variable                  | Description             | Default |
-| ------------------------- | ----------------------- | ------- |
-| `MARIADB_VERSION`         | MariaDB Version         | `11.4`  |
-| `MYSQL_ROOT_PASSWORD`     | Database root password  |         |
-| `SOLR_VERSION`            | Apache Solr Version     | `9`     |
-| `MAILPIT_EXPOSED_PORT`    | MailPit exposed port    | `8025`  |
-| `OMEKA_S_EXPOSED_PORT`    | Omeka S exposted port   | `8080`  |
-| `PHPMYADMIN_EXPOSED_PORT` | PhpMyAdmin exposed port | `8081`  |
-
-## Automated installation
-
-### Download Modules at Startup
-
-You can automatically download modules at startup by setting the OMEKA_S_MODULES environment variable. This should contain one or more:
-
-- module identifiers (dirnames) as found in https://omeka.org/add-ons/json/s_module.json. You specify a specific version with the syntax `module:version`.
-- urls pointing to ZIP releases of valid Omeka S modules.
-
-The modules will be downloaded to the `modules` directory. Existing modules will not be overwritten.
-
-#### Example
-
-In your .env file:
-
-```
-OMEKA_S_MODULES="Common Log EasyAdmin:3.4.38"
+```sh
+mkdir -p ~/git && cd ~/git
+git clone <this-repo-url> omeka-s-docker
 ```
 
-In your compose.override.yaml file:
+### Environment variables
 
-```
-services:
-  omeka:
-    environment:
-      OMEKA_S_MODULES: |
-        Common
-        Log
-        EasyAdmin:3.4.38
-```
+Create a `~/.omekas_env` file:
 
-### Download Themes at Startup
-
-You can automatically download themes at container startup by setting the OMEKA_S_THEMES environment variable. This should contain one or more:
-
-- theme identifiers (dirnames) as found in https://omeka.org/add-ons/json/s_theme.json. You specify a specific version with the syntax `theme:version`.
-- urls pointing to ZIP releases of valid Omeka S themes.
-
-The themes will be downloaded to the `themes` directory. Existing themes will not be overwritten.
-
-#### Example
-
-In your .env file:
-
-```
-OMEKA_S_THEMES="default Freedom:1.0.6"
+```sh
+export OTD_HOME=~/git/omeka-s-docker
+export PATH=$PATH:$OTD_HOME/bin
+export LOCAL_UID=$(id -u)
+export LOCAL_GID=$(id -g)
 ```
 
-In your compose.override.yaml file:
+Have your shell load it on startup:
+
+| Shell | Command |
+| --- | --- |
+| **bash** | `echo '[ -f ~/.omekas_env ] && . ~/.omekas_env' >> ~/.bashrc` |
+| **zsh** | `echo '[ -f ~/.omekas_env ] && source ~/.omekas_env' >> ~/.zshrc` |
+| **ksh / other POSIX shell** | add `. ~/.omekas_env` to `~/.profile` |
+| **fish** | put the same values in `~/.config/fish/conf.d/omekas.fish` with `set -gx` + `fish_add_path $OTD_HOME/bin` |
+
+Then reload the terminal (`exec $SHELL`) or source the file manually.
+
+### Personal configuration
+
+```sh
+cd "$OTD_HOME"
+cp env/defaults.env .env
+$EDITOR .env        # Omeka/PHP/Solr version, admin credentials, modules...
+```
+
+`.env` is not versioned: it is your local configuration.
+
+## Usage
+
+```sh
+otd up -d                 # start the stack, wait for it, print the URLs
+otd --logs                # follow the omeka container logs
+otd down                  # stop the stack (data is kept)
+```
+
+Interfaces: http://localhost:8080 (Omeka S), http://localhost:8081 (phpMyAdmin),
+http://localhost:8983 (Solr).
+
+`otd up -d` waits until every service is healthy; the first boot runs the core
+install and module setup and can take a minute. `otd up` without `-d` streams the
+full startup logs instead. `OTD_WAIT_TIMEOUT=<seconds>` changes the 300s timeout.
+
+### Container access
+
+```sh
+otd --shell                          # shell in the omeka container (user "application")
+otd --root --shell                   # same, as root
+otd --run 'omeka-s-cli module:list'  # one-off command
+otd --dbshell                        # database client on the omeka database
+```
+
+### Updating
+
+```sh
+cd "$OTD_HOME" && git pull
+otd pull                    # refresh base images + rebuild the omeka image
+otd --run reset_all         # if the schema changed
+otd --root --run restart_all
+```
+
+## Modules
+
+Two lists in `.env`:
+
+| Variable | For | Behaviour |
+| --- | --- | --- |
+| `OMEKA_S_MODULES` | registry modules and ZIP URLs (published modules, in the [add-ons directory](https://omeka.org/add-ons/) or not) | downloaded at startup; installed when `OMEKA_S_INSTALL_MODULES=1` |
+| `OMEKA_S_DEV_MODULES` | modules whose code you mount from the host | always installed/enabled at startup |
+
+`OMEKA_S_MODULES` accepts `Name`, `Name:version`, or a ZIP URL, space-separated:
 
 ```
-services:
-  omeka:
-    environment:
-      OMEKA_S_THEMES: |
-        default
-        Freedom:1.0.6
+OMEKA_S_MODULES="Common Log EasyAdmin:3.4.38 https://github.com/acme/omeka-s-module-Foo/releases/download/v1.2.0/Foo-1.2.0.zip"
+OMEKA_S_INSTALL_MODULES=1
 ```
+
+### Modules whose code you have locally
+
+Mount one module, or a directory of modules, from the host:
+
+```sh
+otd --module ~/git/omeka-s-module-MyModule up -d
+otd --modules ~/git/omeka-modules up -d
+```
+
+A `--module` mount is installed/enabled automatically at startup (its name is
+added to `OMEKA_S_DEV_MODULES` for that run). After a code change that bumps the
+version in `config/module.ini`:
+
+```sh
+otd --run 'omeka-s-cli module:upgrade MyModule'
+```
+
+> `--modules DIR` replaces the whole `modules/` directory: modules bundled in the
+> image or downloaded from the registry are then not visible. Prefer `--module`
+> for a targeted mount.
+
+## Search with Solr
+
+Solr is part of the default stack (`SOLR_VERSION` / `SOLR_CORE` in `.env`), on
+http://localhost:8983 with a `default` core. From the omeka container it is
+`http://solr:8983/solr/default`.
+
+Install the search modules via `OMEKA_S_MODULES` (e.g. `Search Solr` from
+BibLibre, or `AdvancedSearch SearchSolr`), then configure the Solr node in the
+Omeka admin using host `solr`, port `8983`, core `default` (not `localhost`).
+
+Iterate on the schema:
+
+```sh
+otd --run solr-reload      # reload the core
+otd --run solr-restart     # unload then recreate the core
+```
+
+## Mail testing
+
+```sh
+otd --smtp up -d
+```
+
+Adds Mailpit on http://localhost:8025 (SMTP on 1025). Omeka S is already
+configured to send through it (`SMTP_*` in `.env`).
+
+## In-container shortcuts
+
+Via `otd --shell` or `otd --run '<name>'`:
+
+| Command | Purpose | User |
+| --- | --- | --- |
+| `reset_all` | wipe the database, reinstall core and modules, run migrations | `otd --run` |
+| `restart_all` | reload Apache / PHP | `otd --root --run` |
+| `modules-install` | (re)install `OMEKA_S_MODULES` + `OMEKA_S_DEV_MODULES` | `otd --run` |
+| `omeka-logs` | follow the application and Apache logs | `otd --run` |
+| `omeka-cache-clear` | clear the Omeka on-disk cache | `otd --run` |
+| `solr-reload` / `solr-restart` | reload / recreate the Solr core | `otd --run` |
+
+## Configuration (`.env`)
+
+See `env/defaults.env` for the full list. Main variables:
+
+| Variable | Purpose | Default |
+| --- | --- | --- |
+| `OMEKA_S_VERSION`, `PHP_VERSION` | versions built into the image | `4.1.1` / `8.2` |
+| `SOLR_VERSION`, `SOLR_CORE` | Solr service | `9` / `default` |
+| `MARIADB_VERSION` | MariaDB version | `11.4` |
+| `OMEKA_S_INSTALL_CORE` | install the core on first boot | `0` |
+| `OMEKA_S_ADMIN_*`, `OMEKA_S_TITLE`, `OMEKA_S_LOCALE`, `OMEKA_S_TIME_ZONE` | installation parameters | — |
+| `OMEKA_S_MODULES`, `OMEKA_S_DEV_MODULES`, `OMEKA_S_THEMES` | add-ons | — |
+| `OMEKA_S_INSTALL_MODULES` | install `OMEKA_S_MODULES` at boot | `0` |
+| `MYSQL_*` | database | `omeka` |
+| `*_EXPOSED_PORT`, `MAILPIT_SMTP_PORT` | host-published ports | 8080 / 8081 / 8983 / 8025 / 1025 |
+| `LOCAL_UID`, `LOCAL_GID` | application user UID/GID (injected by `otd`) | `1000` |
+
+## Building a distributable image
+
+```sh
+./build_image.sh .env my-omeka-s:1.0.0
+```
+
+Builds an image tagged with the modules and themes listed in `OMEKA_S_MODULES` /
+`OMEKA_S_THEMES`.
+
+## Troubleshooting
+
+- `otd up -d` reports "not healthy yet": `otd --logs` to find the failing startup
+  script (`/entrypoint.d`); a slow first boot may just need a higher
+  `OTD_WAIT_TIMEOUT`.
+- Wrong ownership on mounted files: check `LOCAL_UID` / `LOCAL_GID` are exported.
+- "database not empty" at startup: `otd down` then `otd up` again.
 
 ## Credits
 
-Development by [Ghent Centre for Digital Humanities - Ghent University](https://www.ghentcdh.ugent.be/). Funded by the [GhentCDH research projects](https://www.ghentcdh.ugent.be/projects).
-
-<img src="https://www.ghentcdh.ugent.be/ghentcdh_logo_blue_text_transparent_bg_landscape.svg" alt="Landscape" width="500">
+Initial development by the
+[Ghent Centre for Digital Humanities - Ghent University](https://www.ghentcdh.ugent.be/),
+funded by the [GhentCDH research projects](https://www.ghentcdh.ugent.be/projects).

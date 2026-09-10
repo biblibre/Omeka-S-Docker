@@ -1,0 +1,21 @@
+#!/bin/bash
+# Follow the Omeka S application logs and the Apache logs.
+set -e
+
+FILES=()
+for f in \
+    /var/www/omeka-s/logs/application.log \
+    /volume/logs/application.log \
+    /var/log/apache2/error.log \
+    /opt/docker/var/log/supervisor/apached.err.log \
+    /opt/docker/var/log/supervisor/apached.out.log
+do
+    [ -f "$f" ] && FILES+=("$f")
+done
+
+if [ ${#FILES[@]} -eq 0 ]; then
+    echo "No log file found."
+    exit 1
+fi
+
+exec tail -n 50 -F "${FILES[@]}"

@@ -1,0 +1,19 @@
+#!/bin/bash
+# Reload Apache / PHP inside the container.
+# The supervisor socket is root-only and the image has no sudo, so this must
+# run as root:  otd --root --run restart_all
+
+if [ "$(id -u)" != "0" ]; then
+    echo "[restart_all] must run as root: use 'otd --root --run restart_all'"
+    exit 1
+fi
+
+if command -v supervisorctl >/dev/null 2>&1; then
+    supervisorctl restart apache:apached php-fpm:php-fpmd 2>/dev/null \
+      || supervisorctl restart all 2>/dev/null \
+      || true
+else
+    apache2ctl -k graceful 2>/dev/null || apachectl -k graceful 2>/dev/null || true
+fi
+
+echo "[restart_all] done"

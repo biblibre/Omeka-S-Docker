@@ -46,28 +46,19 @@ if [ "${OMEKA_S_INSTALL_CORE:-0}" -eq "1" ]; then
     fi
 fi
 
-# install omeka modules?
-if [ "${OMEKA_S_INSTALL_MODULES:-0}" -eq "1" ]; then
-    # Get module list
-    MODULE_LIST=()
-    if [ -n "${OMEKA_S_MODULES:-}" ]; then
-        IFS=' ' read -ra MODULE_LIST <<< "$OMEKA_S_MODULES"
-    fi
-    # If no modules are specified, exit
-    if [ ${#MODULE_LIST[@]} -eq 0 ]; then
-        echo "No Omeka S modules specified to install."
-    else
-        # Download Omeka S modules
-        echo "Installing Omeka S modules ..."
-        for module in ${MODULE_LIST[@]}; do
-            echo "Installing module: $module"
-            if [ -z "$module" ]; then
-                continue
-            fi
-            $OSC module:install $module --base-path /var/www/omeka-s
-        done
-    fi
+# Install/enable modules. Delegates to the shared `modules-install` helper.
+#  - OMEKA_S_MODULES     : registry ids or ZIP URLs, installed when
+#                          OMEKA_S_INSTALL_MODULES=1
+#  - OMEKA_S_DEV_MODULES : host-mounted modules (otd --module), always installed
+if [ "${OMEKA_S_INSTALL_MODULES:-0}" -eq "1" ] && [ -n "${OMEKA_S_MODULES:-}" ]; then
+    modules-install ${OMEKA_S_MODULES}
 fi
+if [ -n "$(echo "${OMEKA_S_DEV_MODULES:-}" | tr -d ' ')" ]; then
+    modules-install ${OMEKA_S_DEV_MODULES}
+fi
+
+# apply any pending core/database migrations (no-op right after a fresh install)
+$OSC core:migrate --base-path /var/www/omeka-s || true
 
 # todo: import resource templates
 # todo: import vocabularies

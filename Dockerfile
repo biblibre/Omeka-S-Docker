@@ -1,6 +1,8 @@
 ARG PHP_VERSION=8.1
 
-FROM webdevops/php-apache:${PHP_VERSION} AS base
+# Fully-qualified image name: some setups (podman without
+# unqualified-search-registries) do not resolve short names.
+FROM docker.io/webdevops/php-apache:${PHP_VERSION} AS base
 
 # ==========================================================
 
@@ -98,6 +100,10 @@ RUN chown -R application:application /var/www/omeka-s/logs /var/www/omeka-s/file
 COPY --chmod=755 ./build/ /tmp/build/
 RUN mv /tmp/build/.htaccess /var/www/omeka-s/ && \
     mv /tmp/build/local.config.php /var/www/omeka-s/config && \
+    ## Shared shell helpers for the hooks below (sourced first)
+    mv /tmp/build/otd_lib.sh /entrypoint.d/00-otd-lib.sh && \
+    ## Align the "application" user with the host UID/GID (otd LOCAL_UID/LOCAL_GID)
+    mv /tmp/build/fix_uid.sh /entrypoint.d/05-fix_uid.sh && \
     ## Add boot script to generate config (database.ini, local.config.php)
     mv /tmp/build/init_omeka_config.sh /entrypoint.d/50-init_omeka_config.sh && \
     ## Add boot script to automatically download/install modules
@@ -108,8 +114,13 @@ RUN mv /tmp/build/.htaccess /var/www/omeka-s/ && \
     mv /tmp/build/set_omeka_permissions.sh /entrypoint.d/70-set_omeka_permissions.sh && \
     ## Add boot script to prepare omeka instance (install core, module install ...)
     mv /tmp/build/install_omeka_instance.sh /entrypoint.d/80-install_omeka_instance.sh && \
+    ## Ownership pass + provisioning-done marker
+    mv /tmp/build/ready.sh /entrypoint.d/90-ready.sh && \
     # cleanup
     rm -rf /tmp/build
+
+# In-container developer helpers used by `otd --run <name>`
+COPY --chmod=755 ./files/otd_helpers/ /usr/local/bin/
 
 # ==========================================================
 # Download modules and themes

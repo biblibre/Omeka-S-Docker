@@ -6,7 +6,6 @@
 compose.override.yaml
 compose.dev.override.yaml
 
-!example.env
 database.ini
 
 # exclude data folders

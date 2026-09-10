@@ -1,3 +1,7 @@
+# Default Omeka S development stack: Omeka S + MariaDB + Solr + phpMyAdmin.
+# Driven by the `otd` wrapper (see the README); `docker compose up` works too.
+# `otd --smtp` adds Mailpit; `otd --module` / `--modules` mounts host modules.
+
 services:
   omeka:
     build:
@@ -6,51 +10,76 @@ services:
         OMEKA_S_VERSION: ${OMEKA_S_VERSION:-4.1.1}
         PHP_VERSION: ${PHP_VERSION:-8.2}
       target: prod
-    restart: "no"
-    env_file: ".env"
-    ports:
-      - ${OMEKA_S_EXPOSED_PORT:-8080}:80
+    env_file:
+      - .env
+    environment:
+      # Align the image's "application" user with the host user so files written
+      # to the volume stay editable from the host. Injected by `otd` (id -u/-g).
+      APPLICATION_UID: ${LOCAL_UID:-1000}
+      APPLICATION_GID: ${LOCAL_GID:-1000}
+      LOCAL_UID: ${LOCAL_UID:-1000}
+      LOCAL_GID: ${LOCAL_GID:-1000}
     volumes:
       - omeka:/volume
+    ports:
+      - "${OMEKA_S_EXPOSED_PORT:-8080}:80"
     depends_on:
-      - db
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "-o", "/dev/null", "http://localhost/"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 60s
+    networks:
+      - omekanet
 
   db:
     image: mariadb:${MARIADB_VERSION:-11.4}
-    restart: "no"
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-omeka_admin}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-omeka}
+      MYSQL_USER: ${MYSQL_USER:-omeka}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-omeka}
     volumes:
       - db:/var/lib/mysql
       - ./data/db-init:/docker-entrypoint-initdb.d
-    environment:
-      - MYSQL_ROOT_PASSWORD=${MYSQL_ROOT_PASSWORD}
-      - MYSQL_DATABASE=${MYSQL_DATABASE}
-      - MYSQL_USER=${MYSQL_USER}
-      - MYSQL_PASSWORD=${MYSQL_PASSWORD}
-
-  phpmyadmin:
-    image: phpmyadmin/phpmyadmin:latest
-    restart: "no"
-    ports:
-      - ${PHPMYADMIN_EXPOSED_PORT:-8081}:80
-    environment:
-      - PMA_HOST=db
-    depends_on:
-      - db
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 30s
+    networks:
+      - omekanet
 
   solr:
     image: solr:${SOLR_VERSION:-9}
+    command: ["solr-precreate", "${SOLR_CORE:-default}"]
     volumes:
       - solr:/var/solr
-    command:
-      - solr-precreate
-      - omeka
-  mailpit:
-    image: axllent/mailpit
     ports:
-      - ${MAILPIT_EXPOSED_PORT:-8025}:8025
+      - "${SOLR_EXPOSED_PORT:-8983}:8983"
+    networks:
+      - omekanet
+
+  phpmyadmin:
+    image: phpmyadmin:latest
+    environment:
+      PMA_HOST: db
+      UPLOAD_LIMIT: 256M
+    depends_on:
+      - db
+    ports:
+      - "${PHPMYADMIN_EXPOSED_PORT:-8081}:80"
+    networks:
+      - omekanet
 
 volumes:
   omeka:
   db:
   solr:
-      
+
+networks:
+  omekanet:

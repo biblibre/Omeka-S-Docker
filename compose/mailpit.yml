@@ -1,0 +1,13 @@
+# Mailpit: test SMTP server + web UI (via `otd --smtp`).
+# Omeka S connects to it through SMTP_HOST=mailpit / SMTP_PORT=1025 (see .env).
+services:
+  mailpit:
+    image: axllent/mailpit:latest
+    environment:
+      MP_SMTP_AUTH_ACCEPT_ANY: "1"
+      MP_SMTP_AUTH_ALLOW_INSECURE: "1"
+    ports:
+      - "${MAILPIT_EXPOSED_PORT:-8025}:8025"
+      - "${MAILPIT_SMTP_PORT:-1025}:1025"
+    networks:
+      - omekanet
